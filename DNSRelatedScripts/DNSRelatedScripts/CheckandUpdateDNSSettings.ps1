@@ -138,13 +138,11 @@ function Get-IPDNSSettings ($DiscoveredServers, $FileLogPath)
 			}
 		}
 
-		Catch [Excpetion]
+		Catch
 		{
+			$WriteToLog = "Error occured during processing of server $($server.Name).`n $_"
+			Add-Content -Value $WriteToLog -Path $FileLogPath
 			$ErrorActionPreference = "SilentlyContinue"
-			$errorLog = $_.Exception.InnerException.Message
-			$errorLineInScript = $_.InvocationInfo.ScriptLineNumber
-			$WriteToLog = "Error occured during discovery of server $($server.Name):`n$errorLog`n$errorLineInScript`n`n"
-			Add-Content -Path $FileLogPath -Value $WriteToLog
 		}
 	}
 
@@ -179,4 +177,12 @@ if ($IPSettings -ne $null)
 	}
 
 	$IPSettings | Out-GridView
+
+	$WriteCountAD = "Servers found in Active Directory = $($Servers.Count)"
+	$WriteCountDNSArray = "Number of servers of which the DNS settings are discovered = $($IPSettings.Count)"
+	Write-Host $WriteCountAD
+	Write-Host $WriteCountDNSArray
+
+	Add-Content -Value $WriteCountAD -Path $LogPath
+	Add-Content -Value $WriteCountDNSArray -Path $LogPath
 }
