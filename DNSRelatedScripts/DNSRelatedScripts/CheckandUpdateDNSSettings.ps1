@@ -60,49 +60,60 @@ function Get-IPDNSSettings ($DiscoveredServers, $FileLogPath)
 					[STRING]$DNSSuffix = @()
 					foreach ($objItem in $NetItems)
 					{
-						if ($objItem.IPAddress.Count -gt 1)
+						#check if interface has DNS servers configured. If not, interface is not added to the array
+						if ($objItem.{DNSServerSearchOrder}.Count -gt 0)
 						{
-							$TempIpAdderesses = [STRING]$objItem.IPAddress
-							$TempIpAdderesses  = $TempIpAdderesses.Trim().Replace(" ", " - ")
-							$IpAddresses += $TempIpAdderesses
-						}
-						else
-						{
-							$IpAddresses += $objItem.IPAddress +"- "
-						}
-						if ($objItem.{MacAddress}.Count -gt 1)
-						{
-							$TempMACAddresses = [STRING]$objItem.MACAddress
-							$TempMACAddresses = $TempMACAddresses.Replace(" ", " - ")
-							$MACAddresses += $TempMACAddresses +"- "
-						}
-						else
-						{
-							$MACAddresses += $objItem.MACAddress +"- "
-						}
-						if ($objItem.{DNSServerSearchOrder}.Count -gt 1)
-						{
-							$TempDNSAddresses = [STRING]$objItem.DNSServerSearchOrder
-							$TempDNSAddresses = $TempDNSAddresses.Replace(" ", " - ")
-							$DNS += $TempDNSAddresses +"- "
-						}
-						else
-						{
-							$DNS += $objItem.{DNSServerSearchOrder} +"- "
-						}
-						if ($objItem.DNSDomainSuffixSearchOrder.Count -gt 1)
-						{
-							$TempDNSSuffixes = [STRING]$objItem.DNSDomainSuffixSearchOrder
-							$TempDNSSuffixes = $TempDNSSuffixes.Replace(" ", " - ")
-							$DNSSuffix += $TempDNSSuffixes +"- "
-						}
-						else
-						{
-							$DNSSuffix += $objItem.DNSDomainSuffixSearchOrder +"- "
-						}
+							if ($objItem.IPAddress.Count -gt 1)
+							{
+								#check if interface has DNS servers configured
+								if ($objItem.{DNSServerSearchOrder}.Count -gt 0)
+								{
+									$TempIpAdderesses = [STRING]$objItem.IPAddress
+									$TempIpAdderesses  = $TempIpAdderesses.Trim().Replace(" ", " - ")
+									$IpAddresses += $TempIpAdderesses
+								}
+							}
+							else
+							{
+								$IpAddresses += $objItem.IPAddress +"- "
+							}
 
-						$SubNet = [STRING]$objItem.IPSubnet[0]
-						$intRowNet = $intRowNet + 1
+							if ($objItem.{MacAddress}.Count -gt 1)
+							{
+								$TempMACAddresses = [STRING]$objItem.MACAddress
+								$TempMACAddresses = $TempMACAddresses.Replace(" ", " - ")
+								$MACAddresses += $TempMACAddresses +"- "
+							}
+							else
+							{
+								$MACAddresses += $objItem.MACAddress +"- "
+							}
+
+							if ($objItem.{DNSServerSearchOrder}.Count -gt 1)
+							{
+								$TempDNSAddresses = [STRING]$objItem.DNSServerSearchOrder
+								$TempDNSAddresses = $TempDNSAddresses.Replace(" ", " - ")
+								$DNS += $TempDNSAddresses +"- "
+							}
+							else
+							{
+								$DNS += $objItem.{DNSServerSearchOrder} +"- "
+							}
+
+							if ($objItem.DNSDomainSuffixSearchOrder.Count -gt 1)
+							{
+								$TempDNSSuffixes = [STRING]$objItem.DNSDomainSuffixSearchOrder
+								$TempDNSSuffixes = $TempDNSSuffixes.Replace(" ", " - ")
+								$DNSSuffix += $TempDNSSuffixes +"- "
+							}
+							else
+							{
+								$DNSSuffix += $objItem.DNSDomainSuffixSearchOrder +"- "
+							}
+
+							$SubNet = [STRING]$objItem.IPSubnet[0]
+							$intRowNet = $intRowNet + 1
+						}
 					}
 
 					$ServerObj | Add-Member @Member -Name "IP Address" -Value $IpAddresses.substring(0,$IpAddresses.LastIndexOf("-"))
@@ -176,7 +187,7 @@ if ($IPSettings -ne $null)
 		}
 	}
 
-	$IPSettings | Out-GridView
+	$IPSettings | Out-GridView -Title "Servers Interface Overview"
 
 	$WriteCountAD = "Servers found in Active Directory = $($Servers.Count)"
 	$WriteCountDNSArray = "Number of servers of which the DNS settings are discovered = $($IPSettings.Count)"
