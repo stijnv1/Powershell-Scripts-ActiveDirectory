@@ -160,7 +160,7 @@ function Get-IPDNSSettings ($DiscoveredServers, $FileLogPath)
 	return $AllServers
 }
 
-#create inventory of windows server 2008 R2 servers
+#create inventory of windows servers
 $Servers = Get-ADComputer -SearchBase "$OUDistinguishedName" -Filter {operatingSystem -like "Windows Server*"} -Properties operatingSystem
 
 if ($Servers.Count -gt 0)
