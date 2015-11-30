@@ -105,6 +105,7 @@ function Get-IPDNSSettings ($DiscoveredServers)
 				$ServerObj | Add-Member @Member -Name "DHCP Enabled" -Value $objItem.DHCPEnabled
 				$ServerObj | Add-Member @Member -Name "DHCP Lease Obtained" -Value $objItem.DHCPLeaseObtained
 				$ServerObj | Add-Member @Member -Name "DHCP Lease Expires" -Value $objItem.DHCPLeaseExpires
+				$ServerObj | Add-Member @Member -Name "Operating System" -Value $server.OperatingSystem
 				$AllServers += $ServerObj
 			}
 			else
