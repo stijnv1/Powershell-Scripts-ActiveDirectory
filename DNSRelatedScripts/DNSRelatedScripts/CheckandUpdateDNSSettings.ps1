@@ -8,6 +8,9 @@ param
 )
 function Get-IPDNSSettings ($DiscoveredServers)
 {
+	#this function is based on the powershell script found on Technet Gallery:
+	#https://gallery.technet.microsoft.com/Gather-DNS-settings-from-fec23eaa#content
+
 	#initialize arrays
     $AllServers = @()
     $ServerObj  = @()
