@@ -4,7 +4,13 @@
 param
 (
 	[Parameter(Mandatory=$true)]
-	[string]$OUDistinguishedName
+	[string]$OUDistinguishedName,
+
+	[Parameter(Mandatory=$false)]
+	[switch]$ExportToCSV,
+
+	[Parameter(Mandatory=$false)]
+	[string]$CSVPath
 )
 function Get-IPDNSSettings ($DiscoveredServers)
 {
@@ -52,51 +58,51 @@ function Get-IPDNSSettings ($DiscoveredServers)
 					if ($objItem.IPAddress.Count -gt 1)
 					{
 						$TempIpAdderesses = [STRING]$objItem.IPAddress
-						$TempIpAdderesses  = $TempIpAdderesses.Trim().Replace(" ", " ; ")
+						$TempIpAdderesses  = $TempIpAdderesses.Trim().Replace(" ", " - ")
 						$IpAddresses += $TempIpAdderesses
 					}
 					else
 					{
-						$IpAddresses += $objItem.IPAddress +"; "
+						$IpAddresses += $objItem.IPAddress +"- "
 					}
 					if ($objItem.{MacAddress}.Count -gt 1)
 					{
 						$TempMACAddresses = [STRING]$objItem.MACAddress
-						$TempMACAddresses = $TempMACAddresses.Replace(" ", " ; ")
-						$MACAddresses += $TempMACAddresses +"; "
+						$TempMACAddresses = $TempMACAddresses.Replace(" ", " - ")
+						$MACAddresses += $TempMACAddresses +"- "
 					}
 					else
 					{
-						$MACAddresses += $objItem.MACAddress +"; "
+						$MACAddresses += $objItem.MACAddress +"- "
 					}
 					if ($objItem.{DNSServerSearchOrder}.Count -gt 1)
 					{
 						$TempDNSAddresses = [STRING]$objItem.DNSServerSearchOrder
-						$TempDNSAddresses = $TempDNSAddresses.Replace(" ", " ; ")
-						$DNS += $TempDNSAddresses +"; "
+						$TempDNSAddresses = $TempDNSAddresses.Replace(" ", " - ")
+						$DNS += $TempDNSAddresses +"- "
 					}
 					else
 					{
-						$DNS += $objItem.{DNSServerSearchOrder} +"; "
+						$DNS += $objItem.{DNSServerSearchOrder} +"- "
 					}
 					if ($objItem.DNSDomainSuffixSearchOrder.Count -gt 1)
 					{
 						$TempDNSSuffixes = [STRING]$objItem.DNSDomainSuffixSearchOrder
-						$TempDNSSuffixes = $TempDNSSuffixes.Replace(" ", " ; ")
-						$DNSSuffix += $TempDNSSuffixes +"; "
+						$TempDNSSuffixes = $TempDNSSuffixes.Replace(" ", " - ")
+						$DNSSuffix += $TempDNSSuffixes +"- "
 					}
 					else
 					{
-						$DNSSuffix += $objItem.DNSDomainSuffixSearchOrder +"; "
+						$DNSSuffix += $objItem.DNSDomainSuffixSearchOrder +"- "
 					}
 
 					$SubNet = [STRING]$objItem.IPSubnet[0]
 					$intRowNet = $intRowNet + 1
 				}
 
-				$ServerObj | Add-Member @Member -Name "IP Address" -Value $IpAddresses.substring(0,$IpAddresses.LastIndexOf(";"))
+				$ServerObj | Add-Member @Member -Name "IP Address" -Value $IpAddresses.substring(0,$IpAddresses.LastIndexOf("-"))
 				$ServerObj | Add-Member @Member -Name "IP Subnet" -Value $SubNet
-				$ServerObj | Add-Member @Member -Name "MAC Address" -Value $MACAddresses.substring(0,$MACAddresses.LastIndexOf(";"))
+				$ServerObj | Add-Member @Member -Name "MAC Address" -Value $MACAddresses.substring(0,$MACAddresses.LastIndexOf("-"))
 				$ServerObj | Add-Member @Member -Name "DNS" -Value $DNS
 				$ServerObj | Add-Member @Member -Name "DNS Suffix Search Order" -Value $DNSSuffix
 				$ServerObj | Add-Member @Member -Name "DNS Enabled For Wins" -Value $objItem.DNSEnabledForWINSResolution
@@ -135,6 +141,19 @@ if ($Servers.Count -gt 0)
 else
 {
 	Write-Host "No server objects found for the given OU distinguished name" -ForegroundColor Red
+}
+
+if ($ExportToCSV)
+{
+	if ($CSVPath)
+	{
+		Write-Host "Creating a CSV export of the gathered IP information ..." -ForegroundColor Yellow
+		$IPSettings | Export-Csv -Path $CSVPath -NoTypeInformation
+	}
+	else
+	{
+		Write-Host "No CSV export can be generated. The CSVPath parameter is empty." -ForegroundColor Red
+	}
 }
 
 $IPSettings | Out-GridView
