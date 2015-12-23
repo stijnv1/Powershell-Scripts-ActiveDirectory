@@ -10,7 +10,13 @@ param
 	[string]$LogFilePath,
 
 	[parameter(Mandatory=$true)]
-	[string]$GPRSoPTempDirectory
+	[string]$GPRSoPTempDirectory,
+
+	[parameter(Mandatory=$false)]
+	[switch]$ExportToCSV,
+
+	[parameter(Mandatory=$false)]
+	[string]$CSVPath
 )
 
 $ErrorActionPreference = "Continue"
@@ -34,24 +40,58 @@ Function WriteLog ([string]$message, [string]$logPath)
 	}
 }
 
-Function CreateServerArray ($serverArray, $serverName, $serverADGroups,$RSoPGroups)
+Function CreateServerArray ($serverName, $serverADGroups,$RSoPGroups, $ProcessingStatus, $compareStatus)
 {
 	$serverObject = New-Object -TypeName PSObject
-	$serverObject | Add-Member -MemberType NoteProperty -Name "ServerName" -Value $serverName
-	$serverObject | Add-Member -MemberType NoteProperty -Name "DiscoveredADGroups" -Value $serverADGroups
+	$serverObject | Add-Member -MemberType NoteProperty -Name "Servername" -Value $serverName
+	$serverObject | Add-Member -MemberType NoteProperty -Name "Discovered AD Groups" -Value $serverADGroups
 
 	if ($RSoPGroups -eq $null)
 	{
-		$serverObject | Add-Member -MemberType NoteProperty -Name "RSoPGroups" -Value "No RSoP data available"
+		$serverObject | Add-Member -MemberType NoteProperty -Name "RSoP Groups" -Value "No RSoP data available"
 	}
 	else
 	{
-		$serverObject | Add-Member -MemberType NoteProperty -Name "RSoPGroups" -Value $RSoPGroups
+		$serverObject | Add-Member -MemberType NoteProperty -Name "RSoP Groups" -Value $RSoPGroups
+	}
+	
+	switch ($ProcessingStatus)
+	{
+		"OS"  
+		{
+			$serverObject | Add-Member -MemberType NoteProperty -Name "Processing Status" -Value "OS version of processed server too low"
+		}
+
+		"NoError" 
+		{
+			$serverObject | Add-Member -MemberType NoteProperty -Name "Processing Status" -Value "Server processed successfully"
+		}
+
+		"Error" 
+		{
+			$serverObject | Add-Member -MemberType NoteProperty -Name "Processing Status" -Value "Error occured during processing of server"
+		}
 	}
 
-	$serverArray += $serverObject
+	switch ($compareStatus)
+	{
+		"GroupMatch"
+		{
+			$serverObject | Add-Member -MemberType NoteProperty -Name "Group Match" -Value "All RSoP groups matches with the discovered AD groups"
+		}
 
-	return $serverArray
+		"NoGroupMatch"
+		{
+			$serverObject | Add-Member -MemberType NoteProperty -Name "Group Match" -Value "Not all groups discovered in AD matches with discovered RSoP groups"
+		}
+
+		"NoCheck"
+		{
+			$serverObject | Add-Member -MemberType NoteProperty -Name "Group Match" -Value "No compare has been done for this server"
+		}
+	}
+
+	return $serverObject
 }
 
 Function CreateGroupStringArray ($groupMembership)
@@ -60,10 +100,27 @@ Function CreateGroupStringArray ($groupMembership)
 
 	foreach ($group in $groupMembership)
 	{
-		$groupStringArray += $group.Name
+		if ($group.Name -ne "Domain Computers")
+		{
+			$groupStringArray += $group.Name
+		}
 	}
 
 	return $groupStringArray
+}
+
+Function GetRSOP ($serverName, $xmlPath)
+{
+	$gpmcObject = New-Object -ComObject GPMGMT.GPM
+	$constants = $gpmcObject.GetConstants()
+	$rsop = $gpmcObject.GetRSOP($constants.RSOPModeLogging,$null,0)
+	$rsop.LoggingComputer = "lwmeijer\$serverName"
+	$rsop.LoggingFlags = $Constants.RsopLoggingNoUser
+	#$rsop.LoggingUser = "LWMEIJER\Administrator"
+	$rsop.CreateQueryResults()
+	$rsop.GenerateReportToFile($constants.ReportXML,$xmlPath)
+
+	$gpmcObject = $null
 }
 
 Try
@@ -72,8 +129,9 @@ Try
 	$serversToBeInvestigated = @()
 	$serversOverview = @()
 	$serversNotChecked = 0
+	
 
-	Write-Host "Number of server computer objects which will be checked: $($Servers.Count)" -ForegroundColor Yellow
+	Write-Host "Number of server computer objects which will be checked: $($Servers.Count)`n" -ForegroundColor Yellow
 
     foreach ($server in $Servers)
     {
@@ -84,7 +142,7 @@ Try
 			#check if it is a Server 2003 version. If true, then this server cannot be checked. Written in log file which contains computer names which are not checked
 			$ServerInfo = Get-AdComputer $serverName -Properties operatingSystem
 
-			if (($serverInfo.operatingSystem -eq "Windows Server 2003") -or ($ServerInfo.operatingSystem -eq "Windows Server 2000"))
+			if ($ServerInfo.operatingSystem -eq "Windows Server 2000")
 			{
 				Write-Host "Server $serverName is not checked because the Windows OS version is too low to be able to check remotely`n" -ForegroundColor Yellow
 				WriteLog -message "$serverName is not checked. OS not supported" -logPath $LogFilePath
@@ -92,7 +150,7 @@ Try
 				#add server object to server array
 				$groupMemberships = Get-ADPrincipalGroupMembership -Identity $server.SamAccountName
 				$groupStringArray = CreateGroupStringArray -groupMembership $groupMemberships
-				$serversOverview += CreateServerArray -serverArray $serversOverview -serverADGroups $groupStringArray -serverName $server.SamAccountName -RSoPGroups $null
+				$serversOverview += CreateServerArray -serverADGroups $groupStringArray -serverName $server.SamAccountName -RSoPGroups $null -ProcessingStatus "OS" -compareStatus "NoCheck"
 				$groupMemberships = $null
 				$serversNotChecked++
 			}
@@ -112,7 +170,8 @@ Try
 				$tempXMLPath = "$GPRSoPTempDirectory\$serverName.xml"
         
 				Write-Host "Get RSoP data from server $serverName" -ForegroundColor Green
-				Get-GPResultantSetOfPolicy -Computer $serverName -ReportType Xml -Path $tempXMLPath -User "lwmeijer\Administrator" -ErrorAction Continue | Out-Null
+				#Get-GPResultantSetOfPolicy -Computer $serverName -ReportType Xml -Path $tempXMLPath -User "lwmeijer\Administrator" -ErrorAction Continue | Out-Null
+				GetRSOP -serverName $serverName -xmlPath $tempXMLPath
 
 
 				if (Test-Path $tempXMLPath)
@@ -129,24 +188,32 @@ Try
 					$compareOutput = Compare-Object -ReferenceObject (($groupMemberships.Name).Where{$_ -like "*SG_LWM*"} | Sort-Object) `
 					-DifferenceObject ((($groups.'#text').Where{$_ -like "*SG_LWM*"}).Replace("LWMEIJER\","") | Sort-Object) -PassThru
 
-					if ($compareOutput)
+					if ($compareOutput) #differences between discovered RSoP groups and configured AD groups have been found
 					{
 						$serverObject = New-Object -TypeName PSObject
 						$serverObject | Add-Member -MemberType NoteProperty -Name ServerName -Value $serverName
 						$serverObject | Add-Member -MemberType NoteProperty -Name GroupsNotMatching -Value $compareOutput
-
+						
 						$serversToBeInvestigated += $serverObject
 
-						#add to server overview
-						$serversOverview += CreateServerArray -serverArray $serversOverview -serverADGroups $groupStringArray -serverName $server.SamAccountName -RSoPGroups $groups.'#text'
+						#add server to complete server overview
+						$RSoPGroups = (($groups.'#text').Where{$_ -like "*SG_LWM*"}).Replace("LWMEIJER\","")
+						$serversOverview += CreateServerArray -serverADGroups $groupStringArray -serverName $server.SamAccountName -RSoPGroups $RSoPGroups -ProcessingStatus "NoError" -compareStatus "NoGroupMatch"
+					}
+					else #no differences between configured AD groups and discovered RSoP groups have been found
+					{
+						#add server to complete server overview
+						$RSoPGroups = (($groups.'#text').Where{$_ -like "*SG_LWM*"}).Replace("LWMEIJER\","")
+						$serversOverview += CreateServerArray -serverADGroups $groupStringArray -serverName $server.SamAccountName -RSoPGroups $RSoPGroups -ProcessingStatus "NoError" -compareStatus "GroupMatch"
 					}
 
-					Write-Host "------------------------------------------------------------------------`n"
+					Write-Host "-------------------------------------------------------------------------------------------`n"
 
 					#delete temp XML file
 					Remove-Item -Path $tempXMLPath -Force
 
-					#$tempXMLPath = $null
+
+					
 				}
 
 				#reinitialize variables
@@ -160,7 +227,7 @@ Try
 		{
 			$ErrorActionPreference = "Continue"
 			Write-Host "Error occured, writing to log file..." -ForegroundColor Yellow
-			Write-Host "------------------------------------------------------------------------`n"
+			Write-Host "-------------------------------------------------------------------------------------------`n"
 			$errorLog = $_
 			WriteLog -message "While processing computer object $serverName, following error occured: `n$errorLog`n`n" -logPath "$LogFilePath"
 			if (Test-Path $tempXMLPath)
@@ -168,11 +235,26 @@ Try
 				Remove-Item -Path $tempXMLPath -Force
 			}
 
+			$serversOverview += CreateServerArray -serverArray $serversOverview -serverADGroups $groupStringArray -serverName $server.SamAccountName -RSoPGroups $null -ProcessingStatus "Error" -compareStatus "NoCheck"
 			$serversNotChecked++
 		}
     }
 
 	Write-Host "Number of servers which couldn't be checked: $serversNotChecked"
+
+	#check whether an export to CSV was set via ExportToCSV switch parameter
+	if ($ExportToCSV) #export must be performed. Export will be done for both server arrays
+	{
+		#check whether a path is given to store CSV file
+		if ($CSVPath)
+		{
+			$serversOverview | Export-Csv -Path $CSVPath -NoTypeInformation
+		}
+		else
+		{
+			Write-Host "No CSV path was given. No export can be generated" -ForegroundColor Red
+		}
+	}
 
 	if ($serversToBeInvestigated)
 	{
