@@ -69,13 +69,13 @@ Function GetUserMailboxEmailAddresses
 		if ($usermailbox = (Get-Mailbox -ResultSize unlimited $ADSamAccountName -ErrorAction silentlycontinue))
 		{
             #create emailaddress object
-			$emailAddressObject = GetEmailAliasses -userMailBox $usermailbox
+			$emailAddressObject = GetEmailAliasses -userMailBox $usermailbox -emailAddressObject $emailAddressObject
             return $emailAddressObject
 		}
 		elseif ($usermailbox = (Get-RemoteMailbox -ResultSize unlimited $ADSamAccountName -ErrorAction stop))
 		{
             #create emailaddress object
-			$emailAddressObject = GetEmailAliasses -userMailBox $usermailbox -IsO365Mailbox
+			$emailAddressObject = GetEmailAliasses -userMailBox $usermailbox -IsO365Mailbox -emailAddressObject $emailAddressObject
             return $emailAddressObject
 		}
 
@@ -94,7 +94,8 @@ Function GetEmailAliasses
     param
     (
         [object]$userMailBox,
-        [switch]$IsO365Mailbox
+        [switch]$IsO365Mailbox,
+        [PSObject]$emailAddressObject
     )
 
     Try
@@ -103,13 +104,26 @@ Function GetEmailAliasses
         $emailAddressObject | Add-Member -MemberType NoteProperty -Name PrimaryEmailAddress -Value $usermailbox.PrimarySmtpAddress
 
         #add secondary aliasses to mailbox object. Only specific postfix must be added
+        #primary smtp address is not filtered out
         $emailAliasses = $usermailbox.EmailAddresses | ? {($_ -like "smtp*") -and ($_ -like "*$PostFixFilterEmailAliasses")}
             
         $aliasCounter = 1
+
         foreach ($emailAlias in $emailAliasses)
         {
-            $emailAddressObject | Add-Member -MemberType NoteProperty -Name Alias$aliasCounter -Value $emailAlias.Replace("smtp:","")
+            $emailAddressObject | Add-Member -MemberType NoteProperty -Name Alias$aliasCounter -Value $emailAlias.toLower().Replace("smtp:","")
             $aliasCounter++
+        }
+
+        #create additional alias columns to make the CSV export work
+        if ($aliasCounter -lt 6)
+        {
+            do
+            {
+                $emailAddressObject | Add-Member -MemberType NoteProperty -Name Alias$aliasCounter -Value ""
+                $aliasCounter++
+            }
+            while ($aliasCounter -lt 6)
         }
 
         if ($IsO365Mailbox)
@@ -117,9 +131,14 @@ Function GetEmailAliasses
             $forwardingAddress = GetForwardingAddress -LogDirPath $LogDirPath -userMailbox $userMailBox
             $emailAddressObject | Add-Member -MemberType NoteProperty -Name ForwardingEmailAddress -Value $forwardingAddress
         }
+        else
+        {
+            $emailAddressObject | Add-Member -MemberType NoteProperty -Name ForwardingEmailAddress -Value ""
+        }
 
         return $emailAddressObject
     }
+
     Catch
     {
         return $emailaddresses
@@ -141,7 +160,7 @@ Function GetForwardingAddress
     {
         if ((Get-O365Mailbox $userMailbox.UserPrincipalName).ForwardingSmtpAddress)
         {
-            return (Get-O365Mailbox $userMailbox.UserPrincipalName).ForwardingSmtpAddress.Replace("smtp:","")
+            return (Get-O365Mailbox $userMailbox.UserPrincipalName).ForwardingSmtpAddress.toLower().Replace("smtp:","")
         }
         else
         {
@@ -178,8 +197,8 @@ Try
 
 	#get all user objects in specified OU
 	$adusers = Get-ADUser -SearchBase $OUDistinguishedName -Filter * -Properties DisplayName
-    
-    $aduserCounter = 1
+
+    $aduserCounter = 0
 	foreach ($aduser in $adusers)
 	{
         #create user object
@@ -189,11 +208,12 @@ Try
         $UserObject | Add-Member -MemberType NoteProperty -Name DisplayName -Value $aduser.DisplayName
         $UserObject | Add-Member -MemberType NoteProperty -Name GivenName -Value $aduser.GivenName
         $UserObject | Add-Member -MemberType NoteProperty -Name SurName -Value $aduser.SurName
-        #$UserObject | Add-Member -MemberType NoteProperty -Name EmailAddresses -Value $emailAddressObject
 
         #get email address array
 		$emailAddressObject = GetUserMailboxEmailAddresses -ADSamAccountName $aduser.SamAccountName -LogDirPatch $LogDirPath -PostFixFilterEmailAliasses $PostFixFilterEmailAliasses
         
+        #Write-Host "emailaddress object = $emailAddressObject"
+
         #add email addresses to userobject
         if ($emailAddressObject)
         {
@@ -201,7 +221,8 @@ Try
 
             foreach ($alias in $Aliasses)
             {
-                $UserObject | Add-Member -MemberType NoteProperty -Name $alias.Name -Value $alias.Value
+                $aliasValue = $emailAddressObject."$($alias.Name)"
+                $UserObject | Add-Member -MemberType NoteProperty -Name $alias.Name -Value $emailAddressObject."$($alias.Name)"
             }
         }
         else
@@ -236,5 +257,5 @@ Catch
 
 	$ErrorMessage = $_.Exception.Message
 	WriteToLog -LogPath $LogDirPath -TextValue "Error occured: $ErrorMessage" -WriteError $true
-	Write-Host "Error occured: $error"
+	Write-Host "Error occured: $ErrorMessage"
 }
