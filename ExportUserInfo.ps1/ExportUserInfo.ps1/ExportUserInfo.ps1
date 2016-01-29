@@ -16,7 +16,10 @@ param
 	[string]$ExchangeServerName,
 
     [Parameter(Mandatory=$false)]
-    [string]$PostFixFilterEmailAliasses
+    [string]$PostFixFilterEmailAliasses,
+
+	[Parameter(Mandatory=$true)]
+	[int]$MaxNumberOfAliasColumns
 )
 
 Function WriteToLog
@@ -116,14 +119,14 @@ Function GetEmailAliasses
         }
 
         #create additional alias columns to make the CSV export work
-        if ($aliasCounter -lt 6)
+        if ($aliasCounter -lt $MaxNumberOfAliasColumns)
         {
             do
             {
                 $emailAddressObject | Add-Member -MemberType NoteProperty -Name Alias$aliasCounter -Value ""
                 $aliasCounter++
             }
-            while ($aliasCounter -lt 6)
+            while ($aliasCounter -lt $MaxNumberOfAliasColumns)
         }
 
         if ($IsO365Mailbox)
