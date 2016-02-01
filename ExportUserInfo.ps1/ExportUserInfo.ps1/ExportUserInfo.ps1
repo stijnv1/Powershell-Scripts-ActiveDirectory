@@ -19,7 +19,10 @@ param
     [string]$PostFixFilterEmailAliasses,
 
 	[Parameter(Mandatory=$true)]
-	[int]$MaxNumberOfAliasColumns
+	[int]$MaxNumberOfAliasColumns,
+
+	[Parameter(Mandatory=$false)]
+	[switch]$FilterShortUPNs
 )
 
 Function WriteToLog
@@ -61,7 +64,8 @@ Function GetUserMailboxEmailAddresses
 	(
 		[string]$ADSamAccountName,
         [string]$PostFixFilterEmailAliasses,
-		[string]$LogDirPatch
+		[string]$LogDirPatch,
+		[switch]$FilterShortUPNs
 	)
 
 	Try
@@ -71,15 +75,34 @@ Function GetUserMailboxEmailAddresses
 
 		if ($usermailbox = (Get-Mailbox -ResultSize unlimited $ADSamAccountName -ErrorAction silentlycontinue))
 		{
-            #create emailaddress object
-			$emailAddressObject = GetEmailAliasses -userMailBox $usermailbox -emailAddressObject $emailAddressObject
-            return $emailAddressObject
+			if ($FilterShortUPNs)
+            {
+				#create emailaddress object
+				$emailAddressObject = GetEmailAliasses -userMailBox $usermailbox -emailAddressObject $emailAddressObject -FilterShortUPNs
+				return $emailAddressObject
+			}
+			else
+			{
+				#create emailaddress object
+				$emailAddressObject = GetEmailAliasses -userMailBox $usermailbox -emailAddressObject $emailAddressObject
+				return $emailAddressObject
+			}
 		}
 		elseif ($usermailbox = (Get-RemoteMailbox -ResultSize unlimited $ADSamAccountName -ErrorAction stop))
 		{
-            #create emailaddress object
-			$emailAddressObject = GetEmailAliasses -userMailBox $usermailbox -IsO365Mailbox -emailAddressObject $emailAddressObject
-            return $emailAddressObject
+			if ($FilterShortUPNs)
+			{
+				#create emailaddress object
+				$emailAddressObject = GetEmailAliasses -userMailBox $usermailbox -IsO365Mailbox -emailAddressObject $emailAddressObject -FilterShortUPNs
+				return $emailAddressObject
+			}
+			else
+			{
+				#create emailaddress object
+				$emailAddressObject = GetEmailAliasses -userMailBox $usermailbox -IsO365Mailbox -emailAddressObject $emailAddressObject
+				return $emailAddressObject
+			}
+            
 		}
 
 	}
@@ -98,7 +121,8 @@ Function GetEmailAliasses
     (
         [object]$userMailBox,
         [switch]$IsO365Mailbox,
-        [PSObject]$emailAddressObject
+        [PSObject]$emailAddressObject,
+		[switch]$FilterShortUPNs
     )
 
     Try
@@ -108,7 +132,17 @@ Function GetEmailAliasses
 
         #add secondary aliasses to mailbox object. Only specific postfix must be added
         #primary smtp address is not filtered out
-        $emailAliasses = $usermailbox.EmailAddresses | ? {($_ -like "smtp*") -and ($_ -like "*$PostFixFilterEmailAliasses")}
+		#clike is case sensitive. Primary smtp address is filtered out this way, because primary smtp address has capital letters for SMTP proxy address
+		#short UPN mail addresses can be filtered out optionally. Another filter query is used in this case
+		if ($FilterShortUPNs)
+		{
+			$emailAliasses = $usermailbox.EmailAddresses | ? {($_ -clike "smtp:*") -and ($_ -like "*.*@$PostFixFilterEmailAliasses")}
+		}
+		else
+		{
+			$emailAliasses = $usermailbox.EmailAddresses | ? {($_ -clike "smtp:*") -and ($_ -like "*$PostFixFilterEmailAliasses")}
+		}
+        
             
         $aliasCounter = 1
 
@@ -138,8 +172,8 @@ Function GetEmailAliasses
         {
             $emailAddressObject | Add-Member -MemberType NoteProperty -Name ForwardingEmailAddress -Value ""
         }
-
-        return $emailAddressObject
+		
+		return $emailAddressObject      
     }
 
     Catch
@@ -207,13 +241,22 @@ Try
         #create user object
         $UserObject = New-Object PSObject
         
-        #add properties to user object, including emailaddress object
+        #add properties to user object, including emailaddress object and user principal name
         $UserObject | Add-Member -MemberType NoteProperty -Name DisplayName -Value $aduser.DisplayName
         $UserObject | Add-Member -MemberType NoteProperty -Name GivenName -Value $aduser.GivenName
         $UserObject | Add-Member -MemberType NoteProperty -Name SurName -Value $aduser.SurName
+		$UserObject | Add-Member -MemberType NoteProperty -Name UPN -Value $aduser.UserPrincipalName
 
         #get email address array
-		$emailAddressObject = GetUserMailboxEmailAddresses -ADSamAccountName $aduser.SamAccountName -LogDirPatch $LogDirPath -PostFixFilterEmailAliasses $PostFixFilterEmailAliasses
+		#check whether switch to filter out short UPNs is used
+		if ($FilterShortUPNs)
+		{
+			$emailAddressObject = GetUserMailboxEmailAddresses -ADSamAccountName $aduser.SamAccountName -LogDirPatch $LogDirPath -PostFixFilterEmailAliasses $PostFixFilterEmailAliasses -FilterShortUPNs
+		}
+		else
+		{
+			$emailAddressObject = GetUserMailboxEmailAddresses -ADSamAccountName $aduser.SamAccountName -LogDirPatch $LogDirPath -PostFixFilterEmailAliasses $PostFixFilterEmailAliasses
+		}
         
         #Write-Host "emailaddress object = $emailAddressObject"
 
