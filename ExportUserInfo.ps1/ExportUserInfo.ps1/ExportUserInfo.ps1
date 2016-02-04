@@ -165,13 +165,14 @@ Function GetEmailAliasses
 
         if ($IsO365Mailbox)
         {
-            $forwardingAddress = GetForwardingAddress -LogDirPath $LogDirPath -userMailbox $userMailBox
-            $emailAddressObject | Add-Member -MemberType NoteProperty -Name ForwardingEmailAddress -Value $forwardingAddress
+            $forwardingAddress = GetForwardingAddress -LogDirPath $LogDirPath -userMailbox $userMailBox -IsO365Mailbox
         }
         else
         {
-            $emailAddressObject | Add-Member -MemberType NoteProperty -Name ForwardingEmailAddress -Value ""
+            $forwardingAddress = GetForwardingAddress -LogDirPath $LogDirPath -userMailbox $userMailBox
         }
+
+		$emailAddressObject | Add-Member -MemberType NoteProperty -Name ForwardingEmailAddress -Value $forwardingAddress
 		
 		return $emailAddressObject      
     }
@@ -190,19 +191,34 @@ Function GetForwardingAddress
     param
     (
         [string]$LogDirPath,
-        [object]$userMailbox
+        [object]$userMailbox,
+		[switch]$IsO365Mailbox
     )
 
     Try
     {
-        if ((Get-O365Mailbox $userMailbox.UserPrincipalName).ForwardingSmtpAddress)
-        {
-            return (Get-O365Mailbox $userMailbox.UserPrincipalName).ForwardingSmtpAddress.toLower().Replace("smtp:","")
-        }
-        else
-        {
-            return "No forwarding e-mail address configured"
-        }
+		if ($IsO365Mailbox)
+		{
+			if ((Get-O365Mailbox $userMailbox.UserPrincipalName).ForwardingSmtpAddress)
+			{
+				return (Get-O365Mailbox $userMailbox.UserPrincipalName).ForwardingSmtpAddress.toLower().Replace("smtp:","")
+			}
+			else
+			{
+				return "No forwarding e-mail address configured"
+			}
+		}
+		else
+		{
+			if ((Get-Mailbox $userMailbox.UserPrincipalName).ForwardingSmtpAddress)
+			{
+				return (Get-Mailbox $userMailbox.UserPrincipalName).ForwardingSmtpAddress.toLower().Replace("smtp:","")
+			}
+			else
+			{
+				return "No forwarding e-mail address configured"
+			}
+		}
     }
 
     Catch
