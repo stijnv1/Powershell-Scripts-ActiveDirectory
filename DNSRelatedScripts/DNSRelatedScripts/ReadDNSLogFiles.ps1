@@ -8,14 +8,17 @@
 param
 (
 	[string]$DNSLogPath = "\\lwm91man02\DNS Logs",
-	[string]$ScriptLogDir = "C:\Temp",
+	[string]$ScriptLogDir = "C:\temp\CheckDNSEntriesLogs",
 	[string]$ExportCSVPath = "C:\Temp",
 
 	[Parameter(Mandatory=$true)]
 	[string]$SMTPRelayServer,
 
 	[Parameter(Mandatory=$true)]
-	[string]$MailAddress
+	[string]$MailAddress,
+
+	[Parameter(Mandatory=$false)]
+	[switch]$CleanUpDNSLogs
 )
 
 Function WriteToLog
@@ -197,35 +200,83 @@ Function SendCSVToEMail
 	(
 		$CSVFilePath,
 		$mailAddress,
-		$SMTPRelayServer
+		$SMTPRelayServer,
+		$DomainControllers
 	)
 
-	$mailMessage = "This CSV file contains DNS entry logs of the following DNS servers:`n`t-LWM91DC02`n`t-LWM91DC03`n`t-LWM91SERVER02`n`t-LWM91SERVER04"
-	$mailSubject = "DNS Log Entries Overview"
-	Send-MailMessage -Attachments $CSVFilePath -Body $mailMessage -Subject $mailSubject -From "dnslogentries@lambweston.eu" -To $mailAddress -SmtpServer $SMTPRelayServer
+	Try
+	{
+		$mailMessage = "This CSV file contains DNS entry logs of the following DNS servers:"
+		$DomainControllers | % {$mailMessage += "`n`t$($_.DNSHostName)"}
+		$mailSubject = "DNS Log Entries Overview"
+		Send-MailMessage -Attachments $CSVFilePath -Body $mailMessage -Subject $mailSubject -From "dnslogentries@lambweston.eu" -To $mailAddress -SmtpServer $SMTPRelayServer
+	}
+	Catch
+	{
+		$ErrorMessage = $_.Exception.Message
+		WriteToLog -LogPath $ScriptLogDir -TextValue "Error occured during execution of the function SendCSVToEMail.`nError message = $ErrorMessage" -WriteError $true
+	}
+}
+
+Function CleanUpDNSLogFiles
+{
+	#this function cleans up the DNS debug log files.
+	#to be able to cleanup, the DNS service needs to be stopped, file needs to be deleted, and DNS service needs to be started again
+	param
+	(
+		$DNSServerName,
+		$ScriptLogDir
+	)
+
+	Try
+	{
+		WriteToLog -LogPath $ScriptLogDir -TextValue "Stopping DNS service on server $DNSServerName ..." -WriteError $false
+		Invoke-Command -ComputerName $DNSServerName -ScriptBlock {Stop-Service -Name "DNS"} -ErrorAction Stop
+
+		WriteToLog -LogPath $ScriptLogDir -TextValue "Deleting DNS debug log file of server $DNSServerName ..." -WriteError $false
+		Remove-Item -Path "$DNSLogPath\$DNSServerName*.log"
+
+		WriteToLog -LogPath $ScriptLogDir -TextValue "Starting DNS service on server $DNSServerName ..." -WriteError $false
+		Invoke-Command -ComputerName $DNSServerName -ScriptBlock {Start-Service -Name "DNS"}
+	}
+
+	Catch
+	{
+		$ErrorMessage = $_.Exception.Message
+		WriteToLog -LogPath $ScriptLogDir -TextValue "Error occured during execution of function CleanUpDNSLogFiles.`r`nError message = $ErrorMessage" -WriteError $true
+	}
 }
 
 Try
 {
+	#get all old domain controllers
+	$DomainControllers = get-adcomputer -SearchBase "OU=Domain Controllers,DC=lwmeijer,DC=cag" -Filter {operatingSystem -like "Windows Server 2008*"}
+
 	#create CSV file name
 	$thisDate = (Get-Date -DisplayHint Date).ToLongDateString()
 	$CSVFileName = "DNSLogEntriesExport_$thisDate.csv"
 
 	#get content of DNS log files
 	Write-Verbose "DNS Log path = $DNSLogPath"
-	WriteToLog -LogPath $ScriptLogDir -TextValue "`n`nStart reading DNS log files ..." -WriteError $false
+	WriteToLog -LogPath $ScriptLogDir -TextValue "Start reading DNS log files ..." -WriteError $false
 	Get-ChildItem "$DNSLogPath\*.log" | Get-DNSDebugLog | Export-Csv -Path "$ExportCSVPath\$CSVFileName" -NoTypeInformation
 
 	#send CSV file via e-mail
 	WriteToLog -LogPath $ScriptLogDir -TextValue "Send mail to $MailAddress with following CSV file: $CSVFileName ..." -WriteError $false
-	SendCSVToEMail -CSVFilePath "$ExportCSVPath\$CSVFileName" -mailAddress $MailAddress -SMTPRelayServer $SMTPRelayServer
+	SendCSVToEMail -CSVFilePath "$ExportCSVPath\$CSVFileName" -mailAddress $MailAddress -SMTPRelayServer $SMTPRelayServer -DomainControllers $DomainControllers
 
 	#delete CSV file
 	Remove-Item -Path "$ExportCSVPath\$CSVFileName" -Force
+
+	#if the CleanUpDNSLogs switch parameter is specified, the log files are deleted by stopping DNS services, deleting the log files, and starting the DNS services again
+	if ($CleanUpDNSLogs)
+	{
+		$DomainControllers | % {CleanUpDNSLogFiles -DNSServerName $_.DNSHostName -ScriptLogDir $ScriptLogDir}
+	}
 
 }
 Catch
 {
 	$ErrorMessage = $_.Exception.Message
-    WriteToLog -LogPath $ScriptLogDir -TextValue "Error occured during execution of the script.`nError message = $ErrorMessage" -WriteError $true
+    WriteToLog -LogPath $ScriptLogDir -TextValue "Error occured during execution of the script.`r`nError message = $ErrorMessage" -WriteError $true
 }
