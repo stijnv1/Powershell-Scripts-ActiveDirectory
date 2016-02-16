@@ -15,7 +15,7 @@ param
 	[string]$SMTPRelayServer,
 
 	[Parameter(Mandatory=$true)]
-	[string]$MailAddress,
+	[string[]]$MailAddress,
 
 	[Parameter(Mandatory=$false)]
 	[switch]$CleanUpDNSLogs
@@ -198,17 +198,19 @@ Function SendCSVToEMail
 {
 	param
 	(
-		$CSVFilePath,
-		$mailAddress,
-		$SMTPRelayServer,
+		[string]$CSVFilePath,
+		[string[]]$mailAddress,
+		[string]$SMTPRelayServer,
+		[string]$ScriptLogDir,
 		$DomainControllers
 	)
 
 	Try
 	{
 		$mailMessage = "This CSV file contains DNS entry logs of the following DNS servers:"
-		$DomainControllers | % {$mailMessage += "`n`t$($_.DNSHostName)"}
+		$DomainControllers | % {$mailMessage += "`n`t-$($_.DNSHostName)"}
 		$mailSubject = "DNS Log Entries Overview"
+		WriteToLog -LogPath $ScriptLogDir -TextValue "Send mail to $mailAddress with following CSV file: $CSVFileName ..." -WriteError $false
 		Send-MailMessage -Attachments $CSVFilePath -Body $mailMessage -Subject $mailSubject -From "dnslogentries@lambweston.eu" -To $mailAddress -SmtpServer $SMTPRelayServer
 	}
 	Catch
@@ -262,8 +264,7 @@ Try
 	Get-ChildItem "$DNSLogPath\*.log" | Get-DNSDebugLog | Export-Csv -Path "$ExportCSVPath\$CSVFileName" -NoTypeInformation
 
 	#send CSV file via e-mail
-	WriteToLog -LogPath $ScriptLogDir -TextValue "Send mail to $MailAddress with following CSV file: $CSVFileName ..." -WriteError $false
-	SendCSVToEMail -CSVFilePath "$ExportCSVPath\$CSVFileName" -mailAddress $MailAddress -SMTPRelayServer $SMTPRelayServer -DomainControllers $DomainControllers
+	SendCSVToEMail -CSVFilePath "$ExportCSVPath\$CSVFileName" -mailAddress $MailAddress -SMTPRelayServer $SMTPRelayServer -DomainControllers $DomainControllers -ScriptLogDir $ScriptLogDir
 
 	#delete CSV file
 	Remove-Item -Path "$ExportCSVPath\$CSVFileName" -Force
